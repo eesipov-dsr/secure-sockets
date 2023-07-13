@@ -495,7 +495,11 @@ cy_rslt_t cy_tls_init(void)
 
     if(!init_ref_count)
     {
+#if defined(MBEDTLS_HAVE_TIME)
+#if defined(MBEDTLS_PLATFORM_TIME_ALT)
         mbedtls_platform_set_time(get_current_time);
+#endif
+#endif
     }
 
     init_ref_count++;
@@ -543,7 +547,29 @@ cy_rslt_t cy_tls_create_identity(const char *certificate_data, const uint32_t ce
         /* load key */
         mbedtls_pk_init( &identity->private_key );
 
+#if (MBEDTLS_VERSION_NUMBER < 0x03000000)
         ret = mbedtls_pk_parse_key( &identity->private_key, (const unsigned char *) private_key, private_key_len+1, NULL, 0 );
+#else
+        {
+            mbedtls_entropy_context entropyCtx;
+            mbedtls_ctr_drbg_context drbgCtx;
+
+            mbedtls_entropy_init( &entropyCtx );
+            mbedtls_ctr_drbg_init( &drbgCtx );
+            ret = mbedtls_ctr_drbg_seed( &drbgCtx, mbedtls_entropy_func, &entropyCtx, NULL, 0 );
+
+            if( ret == 0 )
+            {
+                ret = mbedtls_pk_parse_key( &identity->private_key,
+                                            (const unsigned char *) private_key, private_key_len+1,
+                                            NULL, 0,
+                                            mbedtls_ctr_drbg_random, &drbgCtx );
+            }
+
+            mbedtls_ctr_drbg_free( &drbgCtx );
+            mbedtls_entropy_free( &entropyCtx );
+        }
+#endif
         if ( ret != 0 )
         {
             tls_cy_log_msg(CYLF_MIDDLEWARE, CY_LOG_ERR, "mbedtls_pk_parse_key failed with error %d\r\n", ret);
